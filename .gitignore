@@ -1,0 +1,81 @@
+# ==============================================================================
+# PrivAI — Git Ignore Configuration (.gitignore)
+# Prevents accidental commits of credentials, databases, local environments, and caches.
+# ==============================================================================
+
+# Virtual Environments
+.venv/
+venv/
+env/
+ENV/
+.env.venv/
+
+# Python Cache & Bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.coverage
+htmlcov/
+*.egg-info/
+.mypy_cache/
+.ruff_cache/
+
+# Node.js & Frontend Artifacts
+node_modules/
+frontend/node_modules/
+dist/
+frontend/dist/
+.eslintcache
+.oxlintcache
+
+# Environment Variables & Secrets (CRITICAL)
+.env
+.env.local
+.env.*.local
+.env.backup
+*.backup
+*.pem
+*.key
+*.token
+*.cert
+*.pfx
+
+# SQLite Databases & Journal Files (CRITICAL - EXCLUDED FROM SUBMISSION)
+*.db
+*.db-wal
+*.db-shm
+*.db-journal
+*.sqlite
+*.sqlite3
+privai_dev.db
+privai_agent.db
+privai_demo_employees.db
+privai_data.db
+privai_data_incident_forensic.db
+
+# Logs, Process IDs & Tunnels
+*.log
+*.pid
+tunnel.log
+tunnel.pid
+
+# Compiled Binaries & Executables
+*.exe
+scripts/cloudflared.exe
+*.dll
+*.so
+*.dylib
+
+# Local IDE & OS Files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Archives & Distribution Bundles
+*.zip
+*.tar.gz
+PrivAI_GitHub_Submission.zip
+staging/

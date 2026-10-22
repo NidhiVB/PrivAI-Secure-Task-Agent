@@ -1,0 +1,10 @@
+flowchart TB
+    B[Browser] --> FE[React static frontend]
+    FE --> API[FastAPI backend]
+    API --> CORE[Detector, policy, risk, redactor]
+    API --> MOCK[Mock adapter default]
+    API --> DB[(SQLite)]
+    ENV[Backend environment variables] --> API
+    API -. explicit opt-in only .-> GROQ[Groq API]
+    OPS[Authorized operator] --> LOGS[Metrics and privacy-safe audit]
+    API --> LOGS

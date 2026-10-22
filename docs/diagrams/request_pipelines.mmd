@@ -1,0 +1,19 @@
+flowchart TD
+    A[Request] --> B[Validate]
+    B --> C[Detect and analyze context]
+    C --> D[Deterministic policy]
+    D --> E{Outcome}
+    E -->|ALLOW| F[Audit metadata]
+    F --> G[Provider permit]
+    G --> H[Provider adapter]
+    E -->|REDACT| I[Redact]
+    I --> J[Re-detect and verify]
+    J --> K{Verified?}
+    K -->|No| Z[Fail closed]
+    K -->|Yes| L[Audit metadata]
+    L --> M[Provider permit]
+    M --> H
+    E -->|BLOCK| N[Block response; zero provider calls]
+    E -->|REVIEW| O[Pending review; zero provider calls]
+    C -. error .-> Z
+    D -. error .-> Z

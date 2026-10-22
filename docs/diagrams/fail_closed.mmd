@@ -1,0 +1,17 @@
+flowchart TD
+    A[Request] --> B{Valid?}
+    B -->|No| C[4xx; no provider call]
+    B -->|Yes| D{Detector and policy ready?}
+    D -->|No| E[Safe 503; no provider call]
+    D -->|Yes| F{Decision}
+    F -->|BLOCK| G[Block; no provider call]
+    F -->|REVIEW| H[Pending; no provider call]
+    F -->|REDACT| I[Redact and verify]
+    F -->|ALLOW| J[Prepare permit]
+    I --> K{Verified?}
+    K -->|No| E
+    K -->|Yes| L[Prepare permit]
+    J --> M{Required audit succeeded?}
+    L --> M
+    M -->|No| E
+    M -->|Yes| N[Provider adapter]

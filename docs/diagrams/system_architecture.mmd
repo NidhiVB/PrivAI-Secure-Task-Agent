@@ -1,0 +1,21 @@
+flowchart LR
+    U[User] --> UI[React UI]
+    UI --> API[FastAPI API]
+    API --> V[Validation and canonicalization]
+    V --> D[Sensitive detector]
+    D --> C[Context and destination analysis]
+    C --> P[Deterministic policy engine]
+    P --> R[Explainable risk score]
+    R --> X{Decision}
+    X -->|ALLOW| G[Provider gateway]
+    X -->|REDACT| S[Redact and verify]
+    S --> G
+    X -->|BLOCK| B[Blocked response]
+    X -->|REVIEW| H[Pending review]
+    G --> M[Mock provider default]
+    G --> E[Optional Groq adapter]
+    API --> L[Privacy-safe audit service]
+    L --> DB[(SQLite metadata)]
+    B --> UI
+    H --> UI
+    G --> UI
