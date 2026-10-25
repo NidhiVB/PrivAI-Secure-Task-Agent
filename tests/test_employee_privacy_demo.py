@@ -373,3 +373,40 @@ def test_employee_repository_refuses_historical_database():
 
     with pytest.raises(SecurityInvariantException):
         EmployeeRepository(db_path="privai_data_incident_forensic.db")
+
+
+def test_employee_operation_dual_compatibility_contract(isolated_demo_env):
+    """Ensure POST /v1/employees/operations/execute returns both policy_reasons and policy_reason_codes, and both audit_reference and audit_references."""
+    client = TestClient(app)
+
+    req = {
+        "employee_id": "EMP-1001",
+        "operation": "summarize_profile",
+        "destination": "mock",
+    }
+    resp = client.post("/v1/employees/operations/execute", json=req)
+    assert resp.status_code == 200
+    data = resp.json()
+
+    # Both policy reasons fields must exist and match
+    assert "policy_reasons" in data
+    assert "policy_reason_codes" in data
+    assert isinstance(data["policy_reasons"], list)
+    assert isinstance(data["policy_reason_codes"], list)
+    assert data["policy_reasons"] == data["policy_reason_codes"]
+    assert len(data["policy_reason_codes"]) > 0
+
+    # Both audit references fields must exist and match
+    assert "audit_reference" in data
+    assert "audit_references" in data
+    assert isinstance(data["audit_references"], list)
+    if data["audit_reference"] is not None:
+        assert data["audit_reference"] in data["audit_references"]
+
+    # Step traces must also contain both fields
+    assert "steps" in data
+    assert isinstance(data["steps"], list)
+    for step in data["steps"]:
+        assert "policy_reason_codes" in step
+        assert "policy_reasons" in step
+        assert step["policy_reason_codes"] == step["policy_reasons"]

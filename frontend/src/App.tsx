@@ -10,6 +10,7 @@ import { ErrorBanner } from './components/ErrorBanner'
 import { ReviewPortal } from './components/ReviewPortal'
 import { AgentWorkbench } from './components/AgentWorkbench'
 import { EmployeePrivacyDemo } from './components/EmployeePrivacyDemo'
+import { ErrorBoundary } from './components/ErrorBoundary'
 import { analyzePrompt, executePrompt, getHealth, ApiError } from './services/api'
 import type {
   ContextModel,
@@ -236,38 +237,43 @@ export const App: React.FC = () => {
       </div>
 
       {activeMode === 'employee_demo' ? (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-          {showReviewPortal && (
-            <ReviewPortal
-              onApplyPermit={handleApplyPermit}
-              activeTicketId={executionResult?.ticket_id}
+        <ErrorBoundary fallbackTitle="Employee Privacy Demo Error">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+            {showReviewPortal && (
+              <ReviewPortal
+                onApplyPermit={handleApplyPermit}
+                activeTicketId={executionResult?.ticket_id}
+              />
+            )}
+            <EmployeePrivacyDemo
+              onOpenReviewPortal={() => setShowReviewPortal((prev) => !prev)}
+              activePermit={reviewPermit}
             />
-          )}
-          <EmployeePrivacyDemo
-            onOpenReviewPortal={() => setShowReviewPortal((prev) => !prev)}
-            activePermit={reviewPermit}
-          />
-        </div>
+          </div>
+        </ErrorBoundary>
       ) : activeMode === 'agent' ? (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-          {showReviewPortal && (
-            <ReviewPortal
-              onApplyPermit={handleApplyPermit}
-              activeTicketId={executionResult?.ticket_id}
+        <ErrorBoundary fallbackTitle="Secure Agent Workbench Error">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+            {showReviewPortal && (
+              <ReviewPortal
+                onApplyPermit={handleApplyPermit}
+                activeTicketId={executionResult?.ticket_id}
+              />
+            )}
+            <AgentWorkbench
+              onOpenReviewPortal={() => setShowReviewPortal((prev) => !prev)}
+              activePermit={reviewPermit}
             />
-          )}
-          <AgentWorkbench
-            onOpenReviewPortal={() => setShowReviewPortal((prev) => !prev)}
-            activePermit={reviewPermit}
-          />
-        </div>
+          </div>
+        </ErrorBoundary>
       ) : (
         /* Main Grid: Left Column Editor & Context, Right Column Analysis & Execution */
-        <main className="dashboard-grid">
-        {/* Left Column: Form Controls */}
-        <section style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }} aria-label="Prompt Input Area">
-          <PromptEditor
-            prompt={prompt}
+        <ErrorBoundary fallbackTitle="Privacy Firewall Error">
+          <main className="dashboard-grid">
+          {/* Left Column: Form Controls */}
+          <section style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }} aria-label="Prompt Input Area">
+            <PromptEditor
+              prompt={prompt}
             onChange={handlePromptChange}
             onSelectPreset={handleSelectPreset}
             disabled={isAnalyzing || isExecuting}
@@ -369,6 +375,7 @@ export const App: React.FC = () => {
           )}
         </section>
       </main>
+      </ErrorBoundary>
       )}
     </div>
   )

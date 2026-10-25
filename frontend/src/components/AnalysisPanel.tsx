@@ -29,6 +29,11 @@ export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({
   policyVersion,
   requestDigest,
 }) => {
+  const safeFindings = Array.isArray(findings) ? findings : []
+  const safeActions = Array.isArray(explanation?.actions) ? explanation.actions : []
+  const safeRuleIds = Array.isArray(explanation?.rule_ids) ? explanation.rule_ids : []
+  const safeReasonCodes = Array.isArray(risk?.reason_codes) ? risk.reason_codes : []
+
   const getDecisionIcon = (action: PolicyOutcome) => {
     switch (action) {
       case 'ALLOW':
@@ -116,13 +121,13 @@ export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({
       {/* Findings List (Data Minimization: strictly no sensitive values) */}
       <div className="form-group">
         <label className="form-label" style={{ display: 'flex', justifyContent: 'space-between' }}>
-          <span>Detected Sensitive Entities ({findings.length})</span>
+          <span>Detected Sensitive Entities ({safeFindings.length})</span>
           <span style={{ textTransform: 'none', color: 'var(--text-dim)', fontSize: '0.75rem' }}>
             Raw values omitted per privacy standard
           </span>
         </label>
 
-        {findings.length === 0 ? (
+        {safeFindings.length === 0 ? (
           <div
             style={{
               padding: '0.75rem',
@@ -140,7 +145,7 @@ export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({
           </div>
         ) : (
           <div className="findings-list">
-            {findings.map((f, idx) => (
+            {safeFindings.map((f, idx) => (
               <div key={`${f.rule_id}-${f.start}-${idx}`} className="finding-item">
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                   <span className="finding-tag">{f.category}</span>
@@ -170,11 +175,11 @@ export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({
             lineHeight: 1.5,
           }}
         >
-          <div style={{ marginBottom: '0.5rem' }}>{explanation.summary}</div>
+          <div style={{ marginBottom: '0.5rem' }}>{explanation?.summary || 'Policy evaluation completed.'}</div>
 
-          {explanation.actions.length > 0 && (
+          {safeActions.length > 0 && (
             <ul style={{ paddingLeft: '1.25rem', color: 'var(--text-muted)', fontSize: '0.82rem' }}>
-              {explanation.actions.map((act, i) => (
+              {safeActions.map((act, i) => (
                 <li key={i}>{act}</li>
               ))}
             </ul>
@@ -182,7 +187,7 @@ export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({
 
           {/* Reason Code Tags */}
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem', marginTop: '0.65rem' }}>
-            {explanation.rule_ids.map((rId) => (
+            {safeRuleIds.map((rId) => (
               <span
                 key={rId}
                 style={{
@@ -197,7 +202,7 @@ export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({
                 #{rId}
               </span>
             ))}
-            {risk.reason_codes.map((rc) => (
+            {safeReasonCodes.map((rc) => (
               <span
                 key={rc}
                 style={{

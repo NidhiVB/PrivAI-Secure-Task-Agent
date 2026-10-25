@@ -78,9 +78,10 @@ export const EmployeePrivacyDemo: React.FC<EmployeePrivacyDemoProps> = ({
         department: selectedDept || undefined,
         classification: selectedClassif || undefined,
       })
-      setEmployees(resp.employees)
-      if (resp.employees.length > 0 && !selectedEmpId) {
-        setSelectedEmpId(resp.employees[0].employee_id)
+      const empList = Array.isArray(resp?.employees) ? resp.employees : []
+      setEmployees(empList)
+      if (empList.length > 0 && !selectedEmpId) {
+        setSelectedEmpId(empList[0].employee_id)
       }
     } catch (err) {
       setErrorMessage(err instanceof Error ? err.message : 'Failed to fetch employee directory')
@@ -236,19 +237,19 @@ export const EmployeePrivacyDemo: React.FC<EmployeePrivacyDemoProps> = ({
           policy_explanation: 'Task resumed and authorized with single-use compliance review permit.',
           final_answer: resumedTask.final_answer || 'Resumed task completed successfully.',
           pending_ticket_id: null,
-          steps: resumedTask.plan
+          steps: resumedTask.plan?.steps
             ? resumedTask.plan.steps.map((s) => ({
                 step_number: s.step_number,
                 description: s.description,
                 tool_name: s.tool_name,
                 status: s.status,
                 policy_decision: s.policy_decision || 'ALLOW',
-                policy_reason_codes: s.policy_reason_codes,
+                policy_reason_codes: s.policy_reason_codes || (s as any).policy_reasons || [],
                 sanitized_tool_input: s.sanitized_tool_input,
                 tool_output: s.tool_output,
                 explanation: s.explanation,
               }))
-            : prev.steps,
+            : (prev.steps || []),
         }
       })
     } catch (err) {
@@ -667,7 +668,7 @@ export const EmployeePrivacyDemo: React.FC<EmployeePrivacyDemoProps> = ({
               }}
             >
               <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-main)' }}>
-                Synthetic Directory ({employees.length} records)
+                Synthetic Directory ({employees?.length ?? 0} records)
               </span>
               <span style={{ fontSize: '0.75rem', color: 'var(--text-dim)' }}>
                 Select an employee to inspect
@@ -679,7 +680,7 @@ export const EmployeePrivacyDemo: React.FC<EmployeePrivacyDemoProps> = ({
                 <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-dim)', fontSize: '0.85rem' }}>
                   Loading synthetic directory...
                 </div>
-              ) : employees.length === 0 ? (
+              ) : (employees?.length ?? 0) === 0 ? (
                 <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-dim)', fontSize: '0.85rem' }}>
                   No matching employees found.
                 </div>
@@ -988,25 +989,29 @@ export const EmployeePrivacyDemo: React.FC<EmployeePrivacyDemoProps> = ({
                       {operationResult.policy_explanation}
                     </p>
 
-                    {operationResult.policy_reason_codes.length > 0 && (
-                      <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
-                        {operationResult.policy_reason_codes.map((code) => (
-                          <span
-                            key={code}
-                            style={{
-                              fontSize: '0.7rem',
-                              fontFamily: 'var(--font-mono)',
-                              background: 'rgba(0, 0, 0, 0.25)',
-                              padding: '0.15rem 0.45rem',
-                              borderRadius: '3px',
-                              color: dec.color,
-                            }}
-                          >
-                            {code}
-                          </span>
-                        ))}
-                      </div>
-                    )}
+                    {(() => {
+                      const reasonCodes = operationResult.policy_reason_codes || (operationResult as any).policy_reasons || []
+                      if (!Array.isArray(reasonCodes) || reasonCodes.length === 0) return null
+                      return (
+                        <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
+                          {reasonCodes.map((code: string) => (
+                            <span
+                              key={code}
+                              style={{
+                                fontSize: '0.7rem',
+                                fontFamily: 'var(--font-mono)',
+                                background: 'rgba(0, 0, 0, 0.25)',
+                                padding: '0.15rem 0.45rem',
+                                borderRadius: '3px',
+                                color: dec.color,
+                              }}
+                            >
+                              {code}
+                            </span>
+                          ))}
+                        </div>
+                      )
+                    })()}
                   </div>
                 )
               })()}
@@ -1174,7 +1179,7 @@ export const EmployeePrivacyDemo: React.FC<EmployeePrivacyDemoProps> = ({
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <h4 style={{ fontSize: '0.88rem', fontWeight: 600, color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
                     <FileText size={15} color="#38bdf8" />
-                    Agent Tool Execution Trace ({operationResult.steps.length} steps)
+                    Agent Tool Execution Trace ({(operationResult.steps?.length ?? 0)} steps)
                   </h4>
                   <span style={{ fontSize: '0.72rem', color: 'var(--text-dim)', fontFamily: 'var(--font-mono)' }}>
                     Task ID: {operationResult.task_id}
@@ -1182,12 +1187,12 @@ export const EmployeePrivacyDemo: React.FC<EmployeePrivacyDemoProps> = ({
                 </div>
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                  {operationResult.steps.length === 0 ? (
+                  {(operationResult.steps?.length ?? 0) === 0 ? (
                     <div style={{ color: 'var(--text-dim)', fontSize: '0.8rem', padding: '0.5rem' }}>
                       Execution blocked before step dispatch (0 tool calls).
                     </div>
                   ) : (
-                    operationResult.steps.map((st) => {
+                    (operationResult.steps || []).map((st) => {
                       const dec = getDecisionBadge(st.policy_decision)
                       return (
                         <div
@@ -1253,30 +1258,38 @@ export const EmployeePrivacyDemo: React.FC<EmployeePrivacyDemoProps> = ({
               </div>
 
               {/* Audit Trail Reference */}
-              {operationResult.audit_references.length > 0 && (
-                <div
-                  style={{
-                    padding: '0.75rem',
-                    borderRadius: 'var(--radius-sm)',
-                    background: 'rgba(15, 23, 42, 0.5)',
-                    border: '1px solid var(--border-subtle)',
-                    fontSize: '0.75rem',
-                    color: 'var(--text-dim)',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '0.3rem',
-                  }}
-                >
-                  <span style={{ fontWeight: 600, color: 'var(--text-muted)' }}>
-                    Cryptographic Audit Digests (Stored in Shared Audit Log):
-                  </span>
-                  {operationResult.audit_references.map((ref, idx) => (
-                    <div key={idx} style={{ fontFamily: 'var(--font-mono)', color: '#94a3b8' }}>
-                      • {ref}
-                    </div>
-                  ))}
-                </div>
-              )}
+              {(() => {
+                const auditRefs = Array.isArray(operationResult.audit_references) && operationResult.audit_references.length > 0
+                  ? operationResult.audit_references
+                  : typeof (operationResult as any).audit_reference === 'string' && (operationResult as any).audit_reference.trim().length > 0
+                  ? [(operationResult as any).audit_reference.trim()]
+                  : []
+                if (auditRefs.length === 0) return null
+                return (
+                  <div
+                    style={{
+                      padding: '0.75rem',
+                      borderRadius: 'var(--radius-sm)',
+                      background: 'rgba(15, 23, 42, 0.5)',
+                      border: '1px solid var(--border-subtle)',
+                      fontSize: '0.75rem',
+                      color: 'var(--text-dim)',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '0.3rem',
+                    }}
+                  >
+                    <span style={{ fontWeight: 600, color: 'var(--text-muted)' }}>
+                      Cryptographic Audit Digests (Stored in Shared Audit Log):
+                    </span>
+                    {auditRefs.map((ref: string, idx: number) => (
+                      <div key={idx} style={{ fontFamily: 'var(--font-mono)', color: '#94a3b8' }}>
+                        • {ref}
+                      </div>
+                    ))}
+                  </div>
+                )
+              })()}
             </>
           ) : (
             /* Idle State */

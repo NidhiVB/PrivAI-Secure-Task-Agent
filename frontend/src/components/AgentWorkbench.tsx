@@ -391,14 +391,14 @@ export const AgentWorkbench: React.FC<AgentWorkbenchProps> = ({
               )}
 
               {/* Bounded Execution Steps */}
-              {activeTask.plan && activeTask.plan.steps.length > 0 && (
+              {activeTask.plan?.steps && activeTask.plan.steps.length > 0 && (
                 <div className="panel-card">
                   <h3 style={{ fontSize: '0.95rem', fontWeight: 600, color: 'var(--text-main)', margin: '0 0 0.75rem 0' }}>
                     Bounded Multi-Step Plan ({activeTask.plan.steps.length} Steps)
                   </h3>
 
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                    {activeTask.plan.steps.map((step: AgentStep) => (
+                    {(activeTask.plan.steps || []).map((step: AgentStep) => (
                       <div
                         key={step.step_number}
                         style={{
@@ -476,16 +476,24 @@ export const AgentWorkbench: React.FC<AgentWorkbenchProps> = ({
                   </pre>
 
                   {/* Audit References */}
-                  {activeTask.audit_references && activeTask.audit_references.length > 0 && (
-                    <div style={{ marginTop: '0.75rem', paddingTop: '0.5rem', borderTop: '1px solid var(--border-color)', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                      <strong>Cryptographic Audit Digests:</strong>
-                      <ul style={{ margin: '0.25rem 0 0 0', paddingLeft: '1.25rem' }}>
-                        {activeTask.audit_references.map((ref, i) => (
-                          <li key={i}><code>{ref}</code></li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
+                  {(() => {
+                    const auditRefs = Array.isArray(activeTask.audit_references) && activeTask.audit_references.length > 0
+                      ? activeTask.audit_references
+                      : typeof (activeTask as any).audit_reference === 'string' && (activeTask as any).audit_reference.trim().length > 0
+                      ? [(activeTask as any).audit_reference.trim()]
+                      : []
+                    if (auditRefs.length === 0) return null
+                    return (
+                      <div style={{ marginTop: '0.75rem', paddingTop: '0.5rem', borderTop: '1px solid var(--border-color)', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                        <strong>Cryptographic Audit Digests:</strong>
+                        <ul style={{ margin: '0.25rem 0 0 0', paddingLeft: '1.25rem' }}>
+                          {auditRefs.map((ref: string, i: number) => (
+                            <li key={i}><code>{ref}</code></li>
+                          ))}
+                        </ul>
+                      </div>
+                    )
+                  })()}
                 </div>
               )}
             </>

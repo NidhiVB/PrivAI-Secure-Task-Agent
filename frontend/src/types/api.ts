@@ -307,7 +307,8 @@ export interface StepTrace {
   tool_name: string
   status: string
   policy_decision: string
-  policy_reason_codes: string[]
+  policy_reason_codes?: string[]
+  policy_reasons?: string[]
   sanitized_tool_input?: Record<string, unknown> | null
   tool_output?: Record<string, unknown> | null
   explanation?: string | null
@@ -319,7 +320,8 @@ export interface EmployeeOperationResponse {
   task_id: string
   status: string
   policy_decision: PolicyOutcome
-  policy_reason_codes: string[]
+  policy_reason_codes?: string[]
+  policy_reasons?: string[]
   policy_explanation: string
   risk_score: number
   downstream_sanitized_confirmed: boolean
@@ -328,7 +330,8 @@ export interface EmployeeOperationResponse {
   steps: StepTrace[]
   final_answer: string
   pending_ticket_id?: string | null
-  audit_references: string[]
+  audit_references?: string[]
+  audit_reference?: string | null
 }
 
 export interface EmployeeResetResponse {

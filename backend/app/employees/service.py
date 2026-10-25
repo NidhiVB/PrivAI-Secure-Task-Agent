@@ -343,6 +343,7 @@ class EmployeeService:
                         status=step.status.value,
                         policy_decision=step.policy_decision.value if step.policy_decision else "ALLOW",
                         policy_reason_codes=step.policy_reason_codes,
+                        policy_reasons=step.policy_reason_codes,
                         sanitized_tool_input=step.sanitized_tool_input,
                         tool_output=step.tool_output,
                         explanation=step.explanation,
@@ -383,6 +384,7 @@ class EmployeeService:
             status=task.status.value,
             policy_decision=policy_decision,
             policy_reasons=policy_reasons,
+            policy_reason_codes=policy_reasons,
             policy_explanation=policy_explanation,
             risk_score=risk_score,
             steps=step_traces,
@@ -391,6 +393,7 @@ class EmployeeService:
             final_answer=task.final_answer,
             pending_ticket_id=task.pending_ticket_id,
             audit_reference=audit_ref,
+            audit_references=task.audit_references or ([audit_ref] if audit_ref else []),
             downstream_sanitized_confirmed=downstream_sanitized,
             provider_called=(task.status == AgentTaskStatus.COMPLETED and destination != Destination.MOCK),
         )

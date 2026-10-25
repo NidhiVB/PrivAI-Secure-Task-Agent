@@ -2,7 +2,7 @@
 
 from enum import Enum
 from typing import Any
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from backend.app.models.enums import Destination, PolicyOutcome
 from backend.app.models.reviews import ReviewPermit
@@ -123,9 +123,21 @@ class StepTrace(BaseModel):
     status: str
     policy_decision: str
     policy_reason_codes: list[str] = Field(default_factory=list)
+    policy_reasons: list[str] = Field(default_factory=list)
     sanitized_tool_input: dict[str, Any] | None = None
     tool_output: dict[str, Any] | None = None
     explanation: str | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def sync_step_reasons(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            reasons = data.get("policy_reasons") or data.get("policy_reason_codes") or []
+            if not data.get("policy_reasons"):
+                data["policy_reasons"] = list(reasons)
+            if not data.get("policy_reason_codes"):
+                data["policy_reason_codes"] = list(reasons)
+        return data
 
 
 class EmployeeOperationResponse(BaseModel):
@@ -140,6 +152,7 @@ class EmployeeOperationResponse(BaseModel):
     status: str
     policy_decision: PolicyOutcome
     policy_reasons: list[str] = Field(default_factory=list)
+    policy_reason_codes: list[str] = Field(default_factory=list)
     policy_explanation: str
     risk_score: int
     steps: list[StepTrace] = Field(default_factory=list)
@@ -148,8 +161,27 @@ class EmployeeOperationResponse(BaseModel):
     final_answer: str | None = None
     pending_ticket_id: str | None = None
     audit_reference: str | None = None
+    audit_references: list[str] = Field(default_factory=list)
     downstream_sanitized_confirmed: bool = True
     provider_called: bool = False
+
+    @model_validator(mode="before")
+    @classmethod
+    def sync_reasons_and_audits(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            reasons = data.get("policy_reasons") or data.get("policy_reason_codes") or []
+            if not data.get("policy_reasons"):
+                data["policy_reasons"] = list(reasons)
+            if not data.get("policy_reason_codes"):
+                data["policy_reason_codes"] = list(reasons)
+
+            audit_ref = data.get("audit_reference")
+            audit_refs = data.get("audit_references") or []
+            if audit_ref and not audit_refs:
+                data["audit_references"] = [audit_ref]
+            elif audit_refs and not audit_ref:
+                data["audit_reference"] = audit_refs[0]
+        return data
 
 
 class EmployeeResetResponse(BaseModel):

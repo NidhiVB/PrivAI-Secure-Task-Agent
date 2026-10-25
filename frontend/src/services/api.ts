@@ -14,7 +14,11 @@ import type {
   PromptRequest,
 } from '../types/api'
 
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '')
+let _rawBaseUrl = (import.meta.env.VITE_API_BASE_URL || '').trim().replace(/\/+$/, '')
+if (_rawBaseUrl && !_rawBaseUrl.startsWith('http://') && !_rawBaseUrl.startsWith('https://')) {
+  _rawBaseUrl = `https://${_rawBaseUrl}`
+}
+const API_BASE_URL = _rawBaseUrl
 
 export class ApiError extends Error {
   code: string
@@ -309,7 +313,14 @@ export async function getEmployees(
     }),
     signal,
   })
-  return handleResponse<import('../types/api').EmployeeSearchResponse>(response)
+  const raw = await handleResponse<Record<string, unknown>>(response)
+  const employees = Array.isArray(raw.employees) ? (raw.employees as import('../types/api').EmployeeRecord[]) : []
+  return {
+    employees,
+    total: typeof raw.total === 'number' ? raw.total : employees.length,
+    limit: typeof raw.limit === 'number' ? raw.limit : 50,
+    offset: typeof raw.offset === 'number' ? raw.offset : 0,
+  }
 }
 
 export async function getEmployeeDetail(
@@ -377,7 +388,62 @@ export async function executeEmployeeOperation(
     body: JSON.stringify(request),
     signal,
   })
-  return handleResponse<import('../types/api').EmployeeOperationResponse>(response)
+  const raw = await handleResponse<Record<string, unknown>>(response)
+
+  // Normalize policy reasons (backend returns policy_reasons; frontend expects policy_reason_codes)
+  const rawReasons = raw.policy_reason_codes || raw.policy_reasons
+  const policyReasonCodes: string[] = Array.isArray(rawReasons)
+    ? rawReasons.filter((r): r is string => typeof r === 'string')
+    : []
+
+  // Normalize audit references (backend returns audit_reference string; frontend expects audit_references array)
+  let auditReferences: string[] = []
+  if (Array.isArray(raw.audit_references)) {
+    auditReferences = raw.audit_references.filter((r): r is string => typeof r === 'string')
+  } else if (typeof raw.audit_reference === 'string' && raw.audit_reference.trim().length > 0) {
+    auditReferences = [raw.audit_reference.trim()]
+  }
+
+  // Normalize steps defensively
+  const rawSteps = Array.isArray(raw.steps) ? raw.steps : []
+  const steps: import('../types/api').StepTrace[] = rawSteps.map((s: any, idx: number) => {
+    const sReasons = s?.policy_reason_codes || s?.policy_reasons
+    const stepReasonCodes: string[] = Array.isArray(sReasons)
+      ? sReasons.filter((r: unknown): r is string => typeof r === 'string')
+      : []
+    return {
+      step_number: typeof s?.step_number === 'number' ? s.step_number : idx + 1,
+      description: typeof s?.description === 'string' ? s.description : '',
+      tool_name: typeof s?.tool_name === 'string' ? s.tool_name : '',
+      status: typeof s?.status === 'string' ? s.status : 'completed',
+      policy_decision: typeof s?.policy_decision === 'string' ? s.policy_decision : 'ALLOW',
+      policy_reason_codes: stepReasonCodes,
+      policy_reasons: stepReasonCodes,
+      sanitized_tool_input: s?.sanitized_tool_input && typeof s.sanitized_tool_input === 'object' ? s.sanitized_tool_input : null,
+      tool_output: s?.tool_output && typeof s.tool_output === 'object' ? s.tool_output : null,
+      explanation: typeof s?.explanation === 'string' ? s.explanation : null,
+    }
+  })
+
+  return {
+    operation: (raw.operation as any) || request.operation,
+    employee_id: typeof raw.employee_id === 'string' ? raw.employee_id : request.employee_id,
+    task_id: typeof raw.task_id === 'string' ? raw.task_id : '',
+    status: typeof raw.status === 'string' ? raw.status : 'completed',
+    policy_decision: (raw.policy_decision as any) || 'ALLOW',
+    policy_reason_codes: policyReasonCodes,
+    policy_reasons: policyReasonCodes,
+    policy_explanation: typeof raw.policy_explanation === 'string' ? raw.policy_explanation : '',
+    risk_score: typeof raw.risk_score === 'number' ? raw.risk_score : 0,
+    downstream_sanitized_confirmed: typeof raw.downstream_sanitized_confirmed === 'boolean' ? raw.downstream_sanitized_confirmed : true,
+    original_test_values: raw.original_test_values && typeof raw.original_test_values === 'object' ? (raw.original_test_values as Record<string, string>) : {},
+    sanitized_values: raw.sanitized_values && typeof raw.sanitized_values === 'object' ? (raw.sanitized_values as Record<string, string>) : {},
+    steps,
+    final_answer: typeof raw.final_answer === 'string' ? raw.final_answer : '',
+    pending_ticket_id: typeof raw.pending_ticket_id === 'string' ? raw.pending_ticket_id : null,
+    audit_references: auditReferences,
+    audit_reference: typeof raw.audit_reference === 'string' ? raw.audit_reference : (auditReferences[0] ?? null),
+  }
 }
 
 

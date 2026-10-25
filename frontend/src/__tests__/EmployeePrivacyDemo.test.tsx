@@ -316,4 +316,81 @@ describe('Employee Privacy Demo UI Component', () => {
     await user.click(openPortalBtn)
     expect(onOpenReviewPortal).toHaveBeenCalledTimes(1)
   })
+
+  it('safely handles live backend schema with policy_reasons and singular audit_reference without throwing or blank-screening', async () => {
+    // Exact schema returned by the live backend commit d612511 where policy_reason_codes and audit_references are omitted
+    const liveStyleBackendResponse: any = {
+      task_id: 'task-live-demo-99',
+      operation: 'summarize_profile',
+      employee_id: 'EMP-1001',
+      employee_name: 'Elena Rostova',
+      goal: 'Summarize Elena Rostova',
+      status: 'completed',
+      policy_decision: 'ALLOW',
+      policy_reasons: ['DEFAULT-ALLOW'],
+      policy_reason_codes: undefined,
+      policy_explanation: 'Permitted basic employee profile summarization.',
+      risk_score: 10,
+      steps: [
+        {
+          step_number: 1,
+          description: 'Query database',
+          tool_name: 'query_db',
+          status: 'completed',
+          policy_decision: 'ALLOW',
+          policy_reasons: ['DEFAULT-ALLOW'],
+          policy_reason_codes: undefined,
+          sanitized_tool_input: null,
+          tool_output: { name: 'Elena Rostova' },
+          explanation: null,
+        },
+      ],
+      original_test_values: {},
+      sanitized_values: {},
+      final_answer: 'Elena Rostova is Staff Security Engineer in Berlin-HQ-B2.',
+      pending_ticket_id: null,
+      audit_reference: 'sha256:audit_live_digest_abc123',
+      audit_references: undefined,
+      downstream_sanitized_confirmed: true,
+    }
+
+    vi.mocked(api.executeEmployeeOperation).mockResolvedValueOnce(liveStyleBackendResponse)
+    const user = userEvent.setup()
+    render(<EmployeePrivacyDemo />)
+
+    // Trigger submission via Allow preset
+    const allowPresetBtn = document.getElementById('preset-allow-btn')!
+    await user.click(allowPresetBtn)
+
+    await waitFor(() => {
+      const banner = document.getElementById('operation-result-banner')
+      expect(banner).toBeInTheDocument()
+      expect(banner).toHaveTextContent('ALLOW')
+      // Must render reason code without throwing on undefined .length
+      expect(screen.getByText('DEFAULT-ALLOW')).toBeInTheDocument()
+      // Must render audit digest safely from singular audit_reference
+      expect(screen.getByText(/sha256:audit_live_digest_abc123/)).toBeInTheDocument()
+      // Must render final synthesized text
+      expect(screen.getByText(/Elena Rostova is Staff Security Engineer in Berlin-HQ-B2/)).toBeInTheDocument()
+    })
+  })
+
+  it('displays actionable error message when execute operation network request fails', async () => {
+    vi.mocked(api.executeEmployeeOperation).mockRejectedValueOnce(
+      new Error('Failed to fetch: Connection refused by server')
+    )
+    const user = userEvent.setup()
+    render(<EmployeePrivacyDemo />)
+
+    const allowPresetBtn = document.getElementById('preset-allow-btn')!
+    await user.click(allowPresetBtn)
+
+    await waitFor(() => {
+      expect(screen.getByText(/Failed to fetch: Connection refused by server/i)).toBeInTheDocument()
+    })
+
+    // Confirm UI remains interactive and alive (not blank)
+    expect(document.getElementById('submit-employee-op-btn')).toBeInTheDocument()
+  })
 })
+
