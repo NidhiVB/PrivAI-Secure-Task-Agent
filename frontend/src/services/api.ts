@@ -314,12 +314,18 @@ export async function getEmployees(
     signal,
   })
   const raw = await handleResponse<Record<string, unknown>>(response)
-  const employees = Array.isArray(raw.employees) ? (raw.employees as import('../types/api').EmployeeRecord[]) : []
+  const employees = Array.isArray(raw.employees) ? (raw.employees as import('../types/api').EmployeeSummary[]) : []
+  const count = typeof raw.total === 'number'
+    ? raw.total
+    : typeof raw.total_count === 'number'
+    ? raw.total_count
+    : employees.length
   return {
     employees,
-    total: typeof raw.total === 'number' ? raw.total : employees.length,
-    limit: typeof raw.limit === 'number' ? raw.limit : 50,
-    offset: typeof raw.offset === 'number' ? raw.offset : 0,
+    total_count: count,
+    total: count,
+    departments: Array.isArray(raw.departments) ? (raw.departments as string[]) : [],
+    classifications: Array.isArray(raw.classifications) ? (raw.classifications as string[]) : [],
   }
 }
 

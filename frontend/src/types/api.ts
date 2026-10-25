@@ -263,6 +263,8 @@ export interface EmployeeSummary {
   office_location: string
 }
 
+export type EmployeeRecord = EmployeeSummary
+
 export type FieldSensitivityTier = 'PUBLIC' | 'CONTACT_SENSITIVE' | 'RESTRICTED_PAYROLL' | 'COMPLIANCE_HEALTH'
 
 export interface EmployeeFieldAuthorization {
@@ -284,6 +286,9 @@ export interface EmployeeDetailResponse {
 export interface EmployeeSearchResponse {
   employees: EmployeeSummary[]
   total_count: number
+  total?: number
+  departments?: string[]
+  classifications?: string[]
 }
 
 export type EmployeeOperationType =

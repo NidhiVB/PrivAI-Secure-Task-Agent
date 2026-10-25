@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { ErrorBoundary } from '../components/ErrorBoundary'
 
 const ThrowingChild = ({ shouldThrow }: { shouldThrow: boolean }) => {
