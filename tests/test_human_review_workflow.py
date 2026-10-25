@@ -293,9 +293,24 @@ def test_jwt_validation_and_rbac_failures() -> None:
         decode_reviewer_token(unauthorized_token)
     assert exc.value.code == "FORBIDDEN_INSUFFICIENT_PERMISSIONS"
 
+    # 5. Token with invalid crypto padding (reproduction of dev_signature bug)
+    import base64
+    h = base64.urlsafe_b64encode(b'{"alg":"HS256","typ":"JWT"}').decode().rstrip('=')
+    p = base64.urlsafe_b64encode(b'{"sub":"u1","roles":["compliance_officer"],"permissions":["PrivAI:Reviewer"],"exp":9999999999,"iss":"privai-auth","aud":"privai-api"}').decode().rstrip('=')
+    malformed_padding_token = f"{h}.{p}.dev_signature"
+    with pytest.raises(AuthException) as exc:
+        decode_reviewer_token(malformed_padding_token)
+    assert exc.value.code == "TOKEN_INVALID"
+    assert "Invalid crypto padding" in exc.value.message
+
+    # 6. Empty or whitespace-only token
+    with pytest.raises(AuthException) as exc:
+        decode_reviewer_token("   ")
+    assert exc.value.code == "TOKEN_EMPTY"
+
 
 def test_reviewer_endpoints_via_api(test_db_path) -> None:
-    """Verify GET /v1/reviews/pending, approve, and reject endpoints."""
+    """Verify GET /v1/reviews/pending, approve, reject, and demo-token endpoints."""
     from backend.app.api.v1.reviews import set_review_services
 
     repo = ReviewRepository(db_path=test_db_path)
@@ -305,6 +320,31 @@ def test_reviewer_endpoints_via_api(test_db_path) -> None:
     set_review_services(repo, audit)
 
     client = TestClient(app)
+
+    # 0. Demo token issuance test
+    r_demo = client.post("/v1/reviews/demo-token", json={"role": "compliance_officer"})
+    assert r_demo.status_code == 200
+    demo_data = r_demo.json()
+    assert "token" in demo_data
+    assert demo_data["role"] == "compliance_officer"
+    assert demo_data["user_id"] == "reviewer_compliance_officer"
+
+    # Invalid demo role rejected
+    r_bad_role = client.post("/v1/reviews/demo-token", json={"role": "invalid_guest_role"})
+    assert r_bad_role.status_code == 400
+
+    # Production guard: Demo token endpoint disabled in production with non-mock provider
+    orig_env = settings.ENVIRONMENT
+    orig_mode = settings.PROVIDER_MODE
+    try:
+        settings.ENVIRONMENT = "production"
+        settings.PROVIDER_MODE = "groq"
+        r_prod = client.post("/v1/reviews/demo-token", json={"role": "compliance_officer"})
+        assert r_prod.status_code == 403
+        assert r_prod.json()["error"]["code"] == "DEMO_AUTH_DISABLED"
+    finally:
+        settings.ENVIRONMENT = orig_env
+        settings.PROVIDER_MODE = orig_mode
 
     # Create a test ticket assigned to compliance_officer
     ticket_id = str(uuid.uuid4())
@@ -319,6 +359,14 @@ def test_reviewer_endpoints_via_api(test_db_path) -> None:
     # 1. Unauthenticated request rejected
     r_unauth = client.get("/v1/reviews/pending")
     assert r_unauth.status_code == 401
+
+    # 1b. Request with malformed padding token rejected with 401 TOKEN_INVALID
+    malformed_padding_token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1MSJ9.dev_signature"
+    r_bad_pad = client.get(
+        "/v1/reviews/pending", headers={"Authorization": f"Bearer {malformed_padding_token}"}
+    )
+    assert r_bad_pad.status_code == 401
+    assert r_bad_pad.json()["error"]["code"] == "TOKEN_INVALID"
 
     # 2. Authenticated as compliance_officer lists the pending ticket
     token_compliance = create_reviewer_token("officer-1", roles=["compliance_officer"])

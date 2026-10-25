@@ -3,9 +3,16 @@
 import datetime
 import uuid
 from fastapi import APIRouter, Depends, status
+from pydantic import BaseModel, Field
 
 from backend.app.audit.service import AuditService, get_audit_service
-from backend.app.core.auth import AuthException, ReviewerUser, get_current_reviewer
+from backend.app.config import settings
+from backend.app.core.auth import (
+    AuthException,
+    ReviewerUser,
+    create_reviewer_token,
+    get_current_reviewer,
+)
 from backend.app.core.permits import generate_review_permit
 from backend.app.models.audit import AuditEvent
 from backend.app.models.enums import PolicyOutcome
@@ -32,6 +39,54 @@ def set_review_services(repo: ReviewRepository, audit: AuditService) -> None:
     global review_repo, audit_service
     review_repo = repo
     audit_service = audit
+
+
+class ReviewerDemoTokenRequest(BaseModel):
+    role: str = Field(..., description="Reviewer role: compliance_officer, hr_admin, or security_admin")
+
+
+class ReviewerDemoTokenResponse(BaseModel):
+    token: str = Field(..., description="Cryptographically signed JWT reviewer token")
+    role: str = Field(..., description="Assigned role")
+    user_id: str = Field(..., description="Reviewer user identifier")
+
+
+@router.post(
+    "/demo-token",
+    response_model=ReviewerDemoTokenResponse,
+    responses={
+        200: {"model": ReviewerDemoTokenResponse, "description": "Signed reviewer token for demonstration"},
+        400: {"model": SafeErrorResponse, "description": "Invalid reviewer role"},
+    },
+    summary="Issue an authoritative cryptographically signed JWT reviewer token for demonstration roles",
+)
+def issue_demo_token(payload: ReviewerDemoTokenRequest) -> ReviewerDemoTokenResponse:
+    """Issue a signed HS256 JWT for Quick Role Connect in demonstration environments.
+
+    Preserves full RBAC invariants:
+    - Strictly validates role against authorized reviewer roles.
+    - Signs token with server-authoritative secret key, issuer 'privai-auth', audience 'privai-api'.
+    - Token contains 'PrivAI:Reviewer' permission and strict expiration.
+    """
+    # Guard against demo token generation in strict production
+    if settings.ENVIRONMENT.lower() in ("production", "prod") and settings.PROVIDER_MODE != "mock":
+        raise AuthException(
+            message="Demo token issuance is disabled in production environment.",
+            code="DEMO_AUTH_DISABLED",
+            status_code=403,
+        )
+
+    allowed_roles = {"compliance_officer", "hr_admin", "security_admin", "auditor"}
+    if payload.role not in allowed_roles:
+        raise AuthException(
+            message=f"Invalid reviewer role '{payload.role}'. Must be one of {sorted(allowed_roles)}.",
+            code="INVALID_ROLE",
+            status_code=400,
+        )
+
+    user_id = f"reviewer_{payload.role}"
+    token = create_reviewer_token(user_id=user_id, roles=[payload.role])
+    return ReviewerDemoTokenResponse(token=token, role=payload.role, user_id=user_id)
 
 
 @router.get(

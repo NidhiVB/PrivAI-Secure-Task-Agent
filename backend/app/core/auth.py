@@ -77,6 +77,10 @@ def decode_reviewer_token(
     iss = issuer or settings.JWT_ISSUER
     aud = audience or settings.JWT_AUDIENCE
 
+    token = token.strip() if isinstance(token, str) else ""
+    if not token:
+        raise AuthException("Token is empty or missing.", code="TOKEN_EMPTY", status_code=401)
+
     try:
         payload = jwt.decode(
             token,

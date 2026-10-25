@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react'
+import React, { useState, useCallback, useEffect } from 'react'
 import {
   ShieldCheck,
   Key,
@@ -8,8 +8,9 @@ import {
   AlertTriangle,
   RefreshCw,
   Send,
+  LogOut,
 } from 'lucide-react'
-import { listPendingReviews, approveReview, rejectReview } from '../services/api'
+import { listPendingReviews, approveReview, rejectReview, getDemoToken } from '../services/api'
 import type { ReviewTicket, ReviewPermit } from '../types/api'
 
 interface ReviewPortalProps {
@@ -17,32 +18,135 @@ interface ReviewPortalProps {
   activeTicketId?: string | null
 }
 
-// Dev helper to generate mock tokens using standard browser crypto for dev/testing
-function createDevToken(userId: string, role: string): string {
-  // Simple Base64 header and payload; signature is accepted by dev backend when using dev key
-  // Header: {"alg":"HS256","typ":"JWT"}
-  const header = btoa(JSON.stringify({ alg: 'HS256', typ: 'JWT' }))
-    .replace(/=/g, '')
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_')
-  const now = Math.floor(Date.now() / 1000)
-  const payload = btoa(
-    JSON.stringify({
-      sub: userId,
-      roles: [role],
-      permissions: ['PrivAI:Reviewer'],
-      iat: now,
-      exp: now + 3600,
-      iss: 'https://auth.privai.internal',
-      aud: 'https://api.privai.internal',
-    })
-  )
-    .replace(/=/g, '')
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_')
+export const REVIEWER_TOKEN_STORAGE_KEY = 'privai_reviewer_token'
+export const REVIEWER_ROLE_STORAGE_KEY = 'privai_reviewer_role'
 
-  // We provide a token format for testing
-  return `${header}.${payload}.dev_signature`
+function base64UrlEncode(strOrBuffer: string | Uint8Array): string {
+  let base64 = ''
+  if (typeof strOrBuffer === 'string') {
+    base64 = btoa(strOrBuffer)
+  } else {
+    let binary = ''
+    const bytes = strOrBuffer
+    const len = bytes.byteLength
+    for (let i = 0; i < len; i++) {
+      binary += String.fromCharCode(bytes[i])
+    }
+    base64 = btoa(binary)
+  }
+  return base64.replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_')
+}
+
+/**
+ * Mint a cryptographically compliant HS256 JWT using standard Web Crypto API.
+ * Uses exact claims and audience/issuer expected by backend decode_reviewer_token.
+ */
+export async function createReviewerToken(
+  userId: string,
+  role: string,
+  secretKey?: string
+): Promise<string> {
+  const secret =
+    secretKey ||
+    (import.meta.env.VITE_JWT_SECRET_KEY as string) ||
+    'privai-dev-jwt-secret-replace-in-production-only-32bytes'
+
+  const header = { alg: 'HS256', typ: 'JWT' }
+  const now = Math.floor(Date.now() / 1000)
+  const payload = {
+    sub: userId,
+    roles: [role],
+    permissions: ['PrivAI:Reviewer'],
+    iat: now,
+    exp: now + 3600,
+    iss: 'privai-auth',
+    aud: 'privai-api',
+  }
+
+  const encodedHeader = base64UrlEncode(JSON.stringify(header))
+  const encodedPayload = base64UrlEncode(JSON.stringify(payload))
+  const data = `${encodedHeader}.${encodedPayload}`
+
+  const encoder = new TextEncoder()
+  const cryptoObj =
+    typeof window !== 'undefined' && window.crypto?.subtle
+      ? window.crypto
+      : typeof globalThis !== 'undefined' && globalThis.crypto?.subtle
+      ? globalThis.crypto
+      : null
+
+  if (cryptoObj?.subtle) {
+    const key = await cryptoObj.subtle.importKey(
+      'raw',
+      encoder.encode(secret),
+      { name: 'HMAC', hash: 'SHA-256' },
+      false,
+      ['sign']
+    )
+    const sigBuffer = await cryptoObj.subtle.sign('HMAC', key, encoder.encode(data))
+    const encodedSignature = base64UrlEncode(new Uint8Array(sigBuffer))
+    return `${data}.${encodedSignature}`
+  }
+
+  throw new Error('Web Crypto API is required for reviewer token signing.')
+}
+
+export function getStoredReviewerToken(): string {
+  try {
+    return sessionStorage.getItem(REVIEWER_TOKEN_STORAGE_KEY) || ''
+  } catch {
+    return ''
+  }
+}
+
+export function setStoredReviewerToken(token: string): void {
+  try {
+    if (token) {
+      sessionStorage.setItem(REVIEWER_TOKEN_STORAGE_KEY, token.trim())
+    } else {
+      sessionStorage.removeItem(REVIEWER_TOKEN_STORAGE_KEY)
+    }
+  } catch {}
+}
+
+export function clearStoredReviewerToken(): void {
+  try {
+    sessionStorage.removeItem(REVIEWER_TOKEN_STORAGE_KEY)
+    sessionStorage.removeItem(REVIEWER_ROLE_STORAGE_KEY)
+  } catch {}
+}
+
+export interface DecodedReviewerClaims {
+  sub: string
+  roles: string[]
+  permissions: string[]
+  exp?: number
+  iss?: string
+  aud?: string
+}
+
+export function parseReviewerClaims(rawToken: string): DecodedReviewerClaims | null {
+  if (!rawToken || typeof rawToken !== 'string') return null
+  const parts = rawToken.trim().split('.')
+  if (parts.length !== 3) return null
+
+  // Ensure signature segment has valid base64url characters and is not a malformed mock signature
+  const sig = parts[2]
+  if (!sig || sig.length % 4 === 1 || sig === 'dev_signature') {
+    return null
+  }
+
+  try {
+    let b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/')
+    while (b64.length % 4) b64 += '='
+    const jsonStr = atob(b64)
+    const parsed = JSON.parse(jsonStr)
+    if (!parsed || typeof parsed !== 'object') return null
+    if (!parsed.sub || !Array.isArray(parsed.roles)) return null
+    return parsed as DecodedReviewerClaims
+  } catch {
+    return null
+  }
 }
 
 export const ReviewPortal: React.FC<ReviewPortalProps> = ({ onApplyPermit, activeTicketId }) => {
@@ -52,33 +156,116 @@ export const ReviewPortal: React.FC<ReviewPortalProps> = ({ onApplyPermit, activ
   const [loading, setLoading] = useState<boolean>(false)
   const [error, setError] = useState<string | null>(null)
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
+  const [authStatus, setAuthStatus] = useState<'unauthenticated' | 'authenticated'>('unauthenticated')
 
   // Action state per ticket
   const [actioningTicketId, setActioningTicketId] = useState<string | null>(null)
   const [rationale, setRationale] = useState<string>('')
   const [issuedPermit, setIssuedPermit] = useState<ReviewPermit | null>(null)
 
-  const fetchTickets = useCallback(async () => {
-    if (!token.trim()) {
-      setError('Please provide or select a Reviewer JWT token.')
-      return
+  const fetchTickets = useCallback(
+    async (tokenOverride?: string) => {
+      const activeJwt = (tokenOverride ?? token).trim()
+      if (!activeJwt) {
+        setAuthStatus('unauthenticated')
+        setTickets([])
+        return
+      }
+
+      setLoading(true)
+      setError(null)
+      try {
+        const res = await listPendingReviews(activeJwt)
+        setTickets(res.tickets)
+        setAuthStatus('authenticated')
+        setStoredReviewerToken(activeJwt)
+      } catch (err) {
+        clearStoredReviewerToken()
+        setAuthStatus('unauthenticated')
+        setTickets([])
+        setError(err instanceof Error ? err.message : 'Failed to fetch pending tickets.')
+      } finally {
+        setLoading(false)
+      }
+    },
+    [token]
+  )
+
+  // Initial load effect: inspects stored token safely without throwing errors on missing or malformed tokens
+  useEffect(() => {
+    let isMounted = true
+    const initPortal = async () => {
+      const stored = getStoredReviewerToken()
+      if (!stored) {
+        if (isMounted) {
+          setAuthStatus('unauthenticated')
+          setToken('')
+        }
+        return
+      }
+
+      // Check client-side sanity of stored token
+      const claims = parseReviewerClaims(stored)
+      const now = Math.floor(Date.now() / 1000)
+      if (!claims || (claims.exp && claims.exp < now)) {
+        // Stale or malformed token: gracefully clear storage, stay unauthenticated
+        clearStoredReviewerToken()
+        if (isMounted) {
+          setAuthStatus('unauthenticated')
+          setToken('')
+        }
+        return
+      }
+
+      if (isMounted) {
+        setToken(stored)
+        if (claims.roles[0]) {
+          setActiveRole(claims.roles[0])
+        }
+      }
+      await fetchTickets(stored)
     }
-    setLoading(true)
+
+    initPortal()
+    return () => {
+      isMounted = false
+    }
+  }, [fetchTickets])
+
+  const handleRoleSelect = async (role: string) => {
+    setActiveRole(role)
     setError(null)
+    setLoading(true)
     try {
-      const res = await listPendingReviews(token.trim())
-      setTickets(res.tickets)
+      let generatedToken = ''
+      try {
+        // 1. Prefer server-authoritative demo token endpoint
+        const res = await getDemoToken(role)
+        generatedToken = res.token
+      } catch {
+        // 2. Fallback to client-side Web Crypto HS256 signing
+        generatedToken = await createReviewerToken(`reviewer_${role}`, role)
+      }
+
+      setToken(generatedToken)
+      setStoredReviewerToken(generatedToken)
+      await fetchTickets(generatedToken)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to fetch pending tickets.')
+      clearStoredReviewerToken()
+      setAuthStatus('unauthenticated')
+      setError(err instanceof Error ? err.message : 'Role connection failed.')
     } finally {
       setLoading(false)
     }
-  }, [token])
+  }
 
-  const handleRoleSelect = (role: string) => {
-    setActiveRole(role)
-    const generated = createDevToken(`reviewer_${role}`, role)
-    setToken(generated)
+  const handleDisconnect = () => {
+    clearStoredReviewerToken()
+    setToken('')
+    setTickets([])
+    setError(null)
+    setSuccessMessage(null)
+    setAuthStatus('unauthenticated')
   }
 
   const handleApprove = async (ticket: ReviewTicket) => {
@@ -95,7 +282,7 @@ export const ReviewPortal: React.FC<ReviewPortalProps> = ({ onApplyPermit, activ
         setIssuedPermit(res.permit)
       }
       setRationale('')
-      fetchTickets()
+      await fetchTickets()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Approval failed.')
     } finally {
@@ -114,7 +301,7 @@ export const ReviewPortal: React.FC<ReviewPortalProps> = ({ onApplyPermit, activ
       await rejectReview(ticket.ticket_id, rationale.trim(), token.trim())
       setSuccessMessage(`Ticket #${ticket.ticket_id.slice(0, 8)} rejected. Zero provider calls dispatched.`)
       setRationale('')
-      fetchTickets()
+      await fetchTickets()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Rejection failed.')
     } finally {
@@ -129,7 +316,20 @@ export const ReviewPortal: React.FC<ReviewPortalProps> = ({ onApplyPermit, activ
           <ShieldCheck size={20} aria-hidden="true" />
           Enterprise Human-Review Portal
         </h2>
-        <span className="decision-badge review">AUTHENTICATED RBAC</span>
+        {authStatus === 'authenticated' ? (
+          <span className="decision-badge review">AUTHENTICATED RBAC</span>
+        ) : (
+          <span
+            className="decision-badge"
+            style={{
+              backgroundColor: 'rgba(100, 116, 139, 0.2)',
+              color: '#94a3b8',
+              border: '1px solid rgba(148, 163, 184, 0.3)',
+            }}
+          >
+            UNAUTHENTICATED
+          </span>
+        )}
       </div>
 
       {/* Auth Control Bar */}
@@ -138,25 +338,49 @@ export const ReviewPortal: React.FC<ReviewPortalProps> = ({ onApplyPermit, activ
           <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Quick Role Connect:</span>
           <button
             type="button"
-            className={`preset-chip ${activeRole === 'compliance_officer' && token ? 'active' : ''}`}
+            className={`preset-chip ${activeRole === 'compliance_officer' && token && authStatus === 'authenticated' ? 'active' : ''}`}
             onClick={() => handleRoleSelect('compliance_officer')}
+            disabled={loading}
           >
             Compliance Officer
           </button>
           <button
             type="button"
-            className={`preset-chip ${activeRole === 'hr_admin' && token ? 'active' : ''}`}
+            className={`preset-chip ${activeRole === 'hr_admin' && token && authStatus === 'authenticated' ? 'active' : ''}`}
             onClick={() => handleRoleSelect('hr_admin')}
+            disabled={loading}
           >
             HR Administrator
           </button>
           <button
             type="button"
-            className={`preset-chip ${activeRole === 'security_admin' && token ? 'active' : ''}`}
+            className={`preset-chip ${activeRole === 'security_admin' && token && authStatus === 'authenticated' ? 'active' : ''}`}
             onClick={() => handleRoleSelect('security_admin')}
+            disabled={loading}
           >
             Security Admin (All)
           </button>
+
+          {authStatus === 'authenticated' && (
+            <button
+              type="button"
+              onClick={handleDisconnect}
+              className="preset-chip"
+              style={{
+                color: '#f87171',
+                borderColor: 'rgba(239, 68, 68, 0.4)',
+                fontSize: '0.75rem',
+                marginLeft: 'auto',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '4px',
+              }}
+              title="Disconnect reviewer session"
+            >
+              <LogOut size={12} />
+              Disconnect
+            </button>
+          )}
         </div>
 
         <div style={{ display: 'flex', gap: '0.5rem' }}>
@@ -181,7 +405,7 @@ export const ReviewPortal: React.FC<ReviewPortalProps> = ({ onApplyPermit, activ
           </div>
           <button
             type="button"
-            onClick={fetchTickets}
+            onClick={() => fetchTickets()}
             disabled={loading}
             className="btn btn-secondary"
             style={{ padding: '0.45rem 0.85rem', fontSize: '0.82rem' }}
@@ -248,10 +472,15 @@ export const ReviewPortal: React.FC<ReviewPortalProps> = ({ onApplyPermit, activ
           )}
         </div>
 
-        {tickets.length === 0 ? (
+        {authStatus === 'unauthenticated' ? (
           <div style={{ padding: '1.5rem', textAlign: 'center', color: 'var(--text-dim)', background: 'var(--bg-input)', borderRadius: 'var(--radius-md)', fontSize: '0.85rem' }}>
             <Clock size={20} style={{ margin: '0 auto 0.5rem auto', opacity: 0.5 }} />
-            No active review tickets matching your assigned role.
+            No active reviewer session. Select a role above or provide a Bearer JWT to connect.
+          </div>
+        ) : tickets.length === 0 ? (
+          <div style={{ padding: '1.5rem', textAlign: 'center', color: 'var(--text-dim)', background: 'var(--bg-input)', borderRadius: 'var(--radius-md)', fontSize: '0.85rem' }}>
+            <Clock size={20} style={{ margin: '0 auto 0.5rem auto', opacity: 0.5 }} />
+            No active review tickets matching your assigned role ({activeRole}).
           </div>
         ) : (
           tickets.map((t) => (

@@ -212,6 +212,26 @@ export async function rejectReview(
 }
 
 /**
+ * Obtain an authoritative signed JWT reviewer token for demonstration roles.
+ */
+export async function getDemoToken(
+  role: string,
+  signal?: AbortSignal
+): Promise<{ token: string; role: string; user_id: string }> {
+  const url = `${API_BASE_URL}/v1/reviews/demo-token`
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: buildHeaders({
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    }),
+    body: JSON.stringify({ role }),
+    signal,
+  })
+  return handleResponse<{ token: string; role: string; user_id: string }>(response)
+}
+
+/**
  * PrivAI Secure Task Agent API Calls
  */
 
