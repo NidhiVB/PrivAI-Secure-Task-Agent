@@ -31,15 +31,6 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=settings.CORS_ALLOWED_ORIGINS,
-    allow_origin_regex=settings.CORS_ALLOWED_ORIGIN_REGEX,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
 
 @app.middleware("http")
 async def verify_team_access(request: Request, call_next: Callable) -> Response:
@@ -139,6 +130,17 @@ async def enforce_body_size_limit(request: Request, call_next: Callable) -> Resp
 
     response = await call_next(request)
     return response
+
+
+# Register CORSMiddleware outermost so all responses (including errors) receive CORS headers
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.CORS_ALLOWED_ORIGINS,
+    allow_origin_regex=settings.CORS_ALLOWED_ORIGIN_REGEX,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 @app.exception_handler(RequestValidationError)

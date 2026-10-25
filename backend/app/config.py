@@ -1,6 +1,7 @@
 """Application configuration management."""
 
-from pydantic import Field
+from typing import Any
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -51,12 +52,13 @@ class Settings(BaseSettings):
     )
 
     # CORS & Deployment Settings
-    CORS_ALLOWED_ORIGINS: list[str] = Field(
+    CORS_ALLOWED_ORIGINS: list[str] | str = Field(
         default=[
             "http://localhost:5173",
             "http://127.0.0.1:5173",
             "http://localhost:3000",
             "http://127.0.0.1:3000",
+            "https://privai-secure-task-agent-1.onrender.com",
         ],
         description="Allowed CORS origins list",
     )
@@ -64,6 +66,61 @@ class Settings(BaseSettings):
         default=r"^https://.*\.trycloudflare\.com$",
         description="Allowed CORS origin regex pattern (e.g. for HTTPS tunnels)",
     )
+
+    @field_validator("CORS_ALLOWED_ORIGINS", mode="before")
+    @classmethod
+    def assemble_cors_origins(cls, v: Any) -> list[str]:
+        if isinstance(v, str):
+            v = v.strip()
+            if v.startswith("[") and v.endswith("]"):
+                try:
+                    import json
+                    parsed = json.loads(v)
+                    if isinstance(parsed, list):
+                        return [
+                            str(item).strip().strip("'\"").rstrip("/")
+                            for item in parsed
+                            if str(item).strip()
+                        ]
+                except Exception:
+                    inner = v[1:-1].strip()
+                    origins = [
+                        item.strip().strip("'\"").rstrip("/")
+                        for item in inner.split(",")
+                        if item.strip()
+                    ]
+                    return [
+                        f"https://{item}" if not item.startswith(("http://", "https://")) and item != "*" else item
+                        for item in origins
+                    ]
+            origins = [
+                origin.strip().strip("'\"").rstrip("/")
+                for origin in v.split(",")
+                if origin.strip()
+            ]
+            normalized = []
+            for origin in origins:
+                if not origin.startswith("http://") and not origin.startswith("https://") and origin != "*":
+                    normalized.append(f"https://{origin}")
+                else:
+                    normalized.append(origin)
+            return normalized
+        if isinstance(v, list):
+            return [
+                str(item).strip().strip("'\"").rstrip("/")
+                for item in v
+                if str(item).strip()
+            ]
+        return v
+
+    @field_validator("CORS_ALLOWED_ORIGIN_REGEX", mode="before")
+    @classmethod
+    def clean_origin_regex(cls, v: Any) -> str | None:
+        if isinstance(v, str):
+            v = v.strip()
+            if not v or v.lower() in ("none", "null", "false", "''", '""'):
+                return None
+        return v
 
     # Shared Team Access Settings (for hackathon demo sharing)
     TEAM_ACCESS_KEY: str = Field(
@@ -187,34 +244,33 @@ class Settings(BaseSettings):
     )
 
     def validate_runtime_database_isolation(self) -> None:
-        """Refuse unsafe development/staging writes to historical privai_data.db."""
+        """Refuse unsafe writes to historical privai_data.db across all environments."""
         from pathlib import Path
 
-        if self.ENVIRONMENT in ("development", "staging"):
-            db_path = Path(self.DATABASE_PATH)
-            hist_path = Path(self.HISTORICAL_DATABASE_PATH)
-            db_resolved = (
-                db_path.resolve() if db_path.is_absolute() else (Path.cwd() / db_path).resolve()
+        db_path = Path(self.DATABASE_PATH)
+        hist_path = Path(self.HISTORICAL_DATABASE_PATH)
+        db_resolved = (
+            db_path.resolve() if db_path.is_absolute() else (Path.cwd() / db_path).resolve()
+        )
+        hist_resolved = (
+            hist_path.resolve() if hist_path.is_absolute() else (Path.cwd() / hist_path).resolve()
+        )
+        if db_resolved == hist_resolved:
+            raise RuntimeError(
+                "UNSAFE RUNTIME DATABASE CONFIGURATION: "
+                f"DATABASE_PATH is pointing to the historical baseline database '{self.HISTORICAL_DATABASE_PATH}'. "
+                "All deployment environments must use an isolated runtime database "
+                "(e.g., DATABASE_PATH=privai_dev.db) to prevent modifying historical baseline data."
             )
-            hist_resolved = (
-                hist_path.resolve() if hist_path.is_absolute() else (Path.cwd() / hist_path).resolve()
+        demo_path = Path(self.EMPLOYEE_DEMO_DATABASE_PATH)
+        demo_resolved = (
+            demo_path.resolve() if demo_path.is_absolute() else (Path.cwd() / demo_path).resolve()
+        )
+        if demo_resolved == hist_resolved:
+            raise RuntimeError(
+                "UNSAFE DEMO DATABASE CONFIGURATION: "
+                f"EMPLOYEE_DEMO_DATABASE_PATH is pointing to historical baseline database '{self.HISTORICAL_DATABASE_PATH}'."
             )
-            if db_resolved == hist_resolved:
-                raise RuntimeError(
-                    "UNSAFE RUNTIME DATABASE CONFIGURATION: "
-                    f"DATABASE_PATH is pointing to the historical baseline database '{self.HISTORICAL_DATABASE_PATH}'. "
-                    "Development and staging environments must use an isolated runtime database "
-                    "(e.g., DATABASE_PATH=privai_dev.db) to prevent modifying historical baseline data."
-                )
-            demo_path = Path(self.EMPLOYEE_DEMO_DATABASE_PATH)
-            demo_resolved = (
-                demo_path.resolve() if demo_path.is_absolute() else (Path.cwd() / demo_path).resolve()
-            )
-            if demo_resolved == hist_resolved:
-                raise RuntimeError(
-                    "UNSAFE DEMO DATABASE CONFIGURATION: "
-                    f"EMPLOYEE_DEMO_DATABASE_PATH is pointing to historical baseline database '{self.HISTORICAL_DATABASE_PATH}'."
-                )
 
 
 settings = Settings()
